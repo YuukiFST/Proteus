@@ -1,0 +1,31 @@
+# proteus-core — library crate, NO UI dependencies (PRD §5/§6).
+# cargo test, cargo-llvm-cov and cargo-mutants run against this crate only (PRD §6/§7).
+[package]
+name = "proteus-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Proteus business logic: PDF and image operations, zero UI dependencies"
+
+[dependencies]
+rand = "0.10"
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# PDF structural ops (PRD §5). font_embedding + embed_image are required for
+# HTML→PDF (embedded DejaVu subset-free fonts), PDF/A font checks and watermarks.
+lopdf = { version = "0.44.0", features = ["font_embedding", "embed_image"] }
+# TrueType metrics for HTML→PDF text layout (same version lopdf uses).
+ttf-parser = "0.25"
+# HTML5-spec parsing for HTML→PDF (lenient on malformed input by design).
+scraper = "0.22"
+# PDF page rendering (PDF→JPG). pdfium loads at runtime; `bindings` feature
+# (bindgen) is NOT enabled: prebuilt bindings ship with the crate.
+pdfium-render = "0.9.3"
+# Image ops (PRD §5). avif/webp are in the default feature set.
+image = "0.25.10"
+
+# Test arsenal (PRD §5 "Testing"): property tests via proptest.
+[dev-dependencies]
+proptest = "1"
+flate2 = "1"  # zlib streams for the decompression-bomb boundary oracle

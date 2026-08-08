@@ -1,0 +1,19 @@
+# Proteus workspace root — layout per PRD §6.
+# Strict lib/bin split: proteus-core has zero UI dependencies; proteus-app owns gpui/gpui-component.
+[workspace]
+resolver = "2"
+members = ["proteus-core", "proteus-app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/YuukiFST/Proteus"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+
+[profile.release]
+lto = "thin"
+strip = "debuginfo"

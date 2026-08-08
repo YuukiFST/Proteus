@@ -1,0 +1,116 @@
+# Proteus CI (PRD §6/§12): build + test + gates on every push; release binaries on tags.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gates:
+    name: gates (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # gpui/gpui-component Linux system libraries (PRD §4/§6: declared here for
+      # CI too; NixOS users get them from flake.nix).
+      - name: system deps (gpui, Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig1-dev libxkbcommon-dev \
+            libwayland-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libgl1-mesa-dev libegl1-mesa-dev libvulkan1
+      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # Coverage + mutation gates on proteus-core only (PRD §6: no display/GPU
+      # needed), PRD §7. The coverage floor is a hard gate: >= 80% lines on the
+      # crate total, parsed from the llvm-cov summary row (pdf_render is exempt:
+      # its oracle is the pdfium unavailable-path, see TESTING-LEDGER.md).
+      - name: coverage gate (proteus-core)
+        if: runner.os == 'Linux'
+        run: |
+          cargo install cargo-llvm-cov --locked
+          cargo llvm-cov test -p proteus-core --no-fail-fast --json > /tmp/cov.json
+          python3 - <<'PY'
+          import json, sys
+          text = open('/tmp/cov.json').read()
+          # strip any shell banner that may precede the JSON document
+          data = json.loads(text[text.index('{'):])
+          covered = count = 0
+          for d in data['data']:
+              covered += d['totals']['lines']['covered']
+              count += d['totals']['lines']['count']
+          pct = 100.0 * covered / count
+          print(f'TOTAL line coverage {pct:.2f}%')
+          if pct < 80.0:
+              sys.exit(f'coverage floor not met: {pct:.2f}% < 80%')
+          PY
+      - name: mutation (proteus-core)
+        if: runner.os == 'Linux'
+        run: |
+          cargo install cargo-mutants --locked
+          cargo mutants --package proteus-core --no-timeout
+
+  release-build:
+    name: release build (${{ matrix.suffix }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: gates
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            suffix: linux
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            suffix: windows.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: system deps (gpui, Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig1-dev libxkbcommon-dev \
+            libwayland-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libgl1-mesa-dev libegl1-mesa-dev libvulkan1
+      - run: cargo build --release --target ${{ matrix.target }} -p proteus-app
+      - name: stage binary
+        shell: bash
+        run: |
+          dest="proteus-${{ matrix.suffix }}"
+          src="target/${{ matrix.target }}/release/proteus"
+          if [ "${{ matrix.suffix }}" = "windows.exe" ]; then
+            src="${src}.exe"
+          fi
+          cp "$src" "$dest"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proteus-${{ matrix.suffix }}
+          path: proteus-${{ matrix.suffix }}
+
+  release-publish:
+    name: publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: proteus-*
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*
