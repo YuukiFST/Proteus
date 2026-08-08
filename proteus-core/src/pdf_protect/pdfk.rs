@@ -218,7 +218,7 @@ exit 0
             let cmd_path = dir.join("pdfk.cmd");
             let wrapper = format!(
                 "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"{}\" %*\r\n",
-                ps_path
+                ps_path.display()
             );
             std::fs::write(&cmd_path, wrapper).unwrap();
             cmd_path
@@ -242,7 +242,7 @@ exit 0
             let cmd_path = dir.join("pdfk.cmd");
             let wrapper = format!(
                 "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"{}\"\r\n",
-                ps_path
+                ps_path.display()
             );
             std::fs::write(&cmd_path, wrapper).unwrap();
             cmd_path

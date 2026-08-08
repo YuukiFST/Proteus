@@ -55,7 +55,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           cargo install cargo-mutants --locked
-          cargo mutants --package proteus-core --no-timeout
+          cargo mutants --package proteus-core
 
   release-build:
     name: release build (${{ matrix.suffix }})
