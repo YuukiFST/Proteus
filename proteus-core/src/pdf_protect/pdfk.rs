@@ -154,8 +154,11 @@ pub(crate) mod tests {
             std::process::id()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("pdfk");
-        let script = r#"#!/bin/sh
+
+        #[cfg(unix)]
+        {
+            let path = dir.join("pdfk");
+            let script = r#"#!/bin/sh
 cmd="$1"; shift
 in=""; out=""; pw=""
 while [ $# -gt 0 ]; do
@@ -179,13 +182,71 @@ fi
 cp "$in" "$out"
 exit 0
 "#;
-        std::fs::write(&path, script).unwrap();
-        #[cfg(unix)]
-        {
+            std::fs::write(&path, script).unwrap();
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            path
         }
-        path
+
+        #[cfg(windows)]
+        {
+            let ps_path = dir.join("pdfk.ps1");
+            let script = r#"
+$cmd = $args[0]
+$in = ""
+$out = ""
+$pw = ""
+$i = 1
+while ($i -lt $args.Length) {
+  switch ($args[$i]) {
+    "--password" { $pw = $args[$i + 1]; $i += 2 }
+    "--output" { $out = $args[$i + 1]; $i += 2 }
+    "--user-password" { exit 3 }
+    "--owner-password" { exit 3 }
+    default { $in = $args[$i]; $i += 1 }
+  }
+}
+if ($cmd -eq "check") {
+  if ($pw -ne "right") { exit 1 }
+  exit 0
+}
+if (-not $in -or -not $out) { exit 2 }
+Copy-Item -Path $in -Destination $out -Force
+exit 0
+"#;
+            std::fs::write(&ps_path, script).unwrap();
+            let cmd_path = dir.join("pdfk.cmd");
+            let wrapper = format!(
+                "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"{}\" %*\r\n",
+                ps_path
+            );
+            std::fs::write(&cmd_path, wrapper).unwrap();
+            cmd_path
+        }
+    }
+
+    fn failing_pdfk_script(dir: &std::path::Path) -> PathBuf {
+        #[cfg(unix)]
+        {
+            let path = dir.join("pdfk");
+            std::fs::write(&path, "#!/bin/sh\nexit 1\n").unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        }
+
+        #[cfg(windows)]
+        {
+            let ps_path = dir.join("fail.ps1");
+            std::fs::write(&ps_path, "exit 1").unwrap();
+            let cmd_path = dir.join("pdfk.cmd");
+            let wrapper = format!(
+                "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"{}\"\r\n",
+                ps_path
+            );
+            std::fs::write(&cmd_path, wrapper).unwrap();
+            cmd_path
+        }
     }
 
     #[test]
@@ -253,13 +314,7 @@ exit 0
             std::process::id()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("pdfk");
-        std::fs::write(&path, "#!/bin/sh\nexit 1\n").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        let path = failing_pdfk_script(&dir);
         let cli = PdfkCliProtect { binary: path };
         let pdf = crate::pdf::testutil::one_page_pdf("mark");
         let err = cli.protect(&pdf, "a", "a").unwrap_err();
