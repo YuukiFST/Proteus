@@ -51,11 +51,18 @@ jobs:
           if pct < 80.0:
               sys.exit(f'coverage floor not met: {pct:.2f}% < 80%')
           PY
-      - name: mutation (proteus-core)
+      # PRD §7 / TESTING-LEDGER.md: mutation gate applies to T2 surfaces only
+      # (password ops + adversarial parsing), not the full crate (~816 mutants).
+      - name: mutation gate (T2 surfaces)
         if: runner.os == 'Linux'
+        timeout-minutes: 45
         run: |
           cargo install cargo-mutants --locked
-          cargo mutants --package proteus-core
+          cargo mutants --package proteus-core \
+            --file proteus-core/src/pdf/mod.rs \
+            --file proteus-core/src/pdf_protect/mod.rs \
+            --file proteus-core/src/pdf_protect/pdfk.rs \
+            --in-place
 
   release-build:
     name: release build (${{ matrix.suffix }})
